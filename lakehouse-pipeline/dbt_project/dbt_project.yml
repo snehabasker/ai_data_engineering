@@ -1,0 +1,23 @@
+name: lakehouse
+version: "0.1.0"
+config-version: 2
+profile: lakehouse
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+
+models:
+  lakehouse:
+    staging:
+      +materialized: table
+      +schema: staging
+    marts:
+      # Marts are written as Parquet: the "lake" half of the lakehouse (open format, engine-independent).
+      +materialized: external
+      +schema: marts
+
+seeds:
+  lakehouse:
+    +schema: ref

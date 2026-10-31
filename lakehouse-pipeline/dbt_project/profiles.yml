@@ -1,0 +1,10 @@
+lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      # run_pipeline.py exports absolute paths; the relative defaults serve ad-hoc `dbt build` from dbt_project/.
+      # Absolute matters: `external` models create views that embed the Parquet path.
+      path: "{{ env_var('LAKEHOUSE_DB', '../data/lakehouse.duckdb') }}"
+      external_root: "{{ env_var('LAKE_DIR', '../data/lake') }}"
+      threads: 4

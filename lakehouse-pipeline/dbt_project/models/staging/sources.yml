@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Bronze layer. Every column is text, exactly as delivered.
+    schema: raw
+    tables:
+      - name: orders
+        columns:
+          - name: order_id
+            data_tests: [not_null]
+      - name: order_lines
+      - name: tracks
+      - name: customers

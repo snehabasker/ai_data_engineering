@@ -1,0 +1,88 @@
+version: 2
+
+models:
+  - name: stg_orders
+    description: Deduplicated, typed, validated orders.
+    columns:
+      - name: order_id
+        data_tests: [unique, not_null]
+      - name: customer_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: { to: "ref('stg_customers')", field: customer_id }
+      - name: order_date
+        data_tests: [not_null]
+      - name: total
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments: { expression: "total >= 0" }
+      - name: billing_country
+        data_tests:
+          - not_null
+          - expression_is_true:
+              arguments: { expression: "billing_country = trim(billing_country) and billing_country not in ('usa','U.S.A.','United States')" }
+  - name: quarantine_orders
+    description: Rejected orders with reason.
+    columns:
+      - name: reject_reason
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments: { values: [missing_customer, unparseable_date, future_date, missing_total] }
+  - name: stg_order_lines
+    columns:
+      - name: line_id
+        data_tests: [unique, not_null]
+      - name: unit_price
+        data_tests: [not_null]
+  - name: stg_tracks
+    columns:
+      - name: track_id
+        data_tests: [unique, not_null]
+      - name: duration_ms
+        data_tests: [not_null]
+  - name: stg_customers
+    columns:
+      - name: customer_id
+        data_tests: [unique, not_null]
+
+  - name: dim_customer
+    columns:
+      - name: customer_key
+        data_tests: [unique, not_null]
+  - name: dim_track
+    columns:
+      - name: track_key
+        data_tests: [unique, not_null]
+      - name: genre
+        data_tests: [not_null]
+  - name: dim_date
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+  - name: fct_sales
+    description: "Grain: one row per accepted order line with a known track."
+    columns:
+      - name: line_id
+        data_tests: [unique, not_null]
+      - name: customer_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: { to: "ref('dim_customer')", field: customer_key }
+      - name: track_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: { to: "ref('dim_track')", field: track_key }
+      - name: date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments: { to: "ref('dim_date')", field: date_key }
+      - name: revenue
+        data_tests:
+          - expression_is_true:
+              arguments: { expression: "revenue >= 0" }

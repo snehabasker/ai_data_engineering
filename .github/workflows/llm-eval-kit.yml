@@ -1,0 +1,40 @@
+name: llm-eval-kit
+on:
+  push:
+    paths: ["llm-eval-kit/**", ".github/workflows/llm-eval-kit.yml"]
+  pull_request:
+    paths: ["llm-eval-kit/**", ".github/workflows/llm-eval-kit.yml"]
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Also evaluate this Anthropic model (needs ANTHROPIC_API_KEY secret), e.g. claude-sonnet-5-5"
+        required: false
+
+defaults:
+  run:
+    working-directory: llm-eval-kit
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -e ".[dev,anthropic]"
+      - run: pytest
+      # Harness self-check: the hardened fixture must stay at/above the committed baseline.
+      - run: evalkit run --target mock:hardened --baseline reports/baseline.json --min-pass injection=1.0 --min-pass hallucination=1.0 --min-pass bias=1.0 --out reports
+      - if: ${{ inputs.model != '' }}
+        run: evalkit run --target anthropic:${{ inputs.model }} --out reports --min-pass injection=1.0
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - if: always()
+        run: evalkit dashboard reports/history -o dashboard.html
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-dashboard
+          path: |
+            llm-eval-kit/dashboard.html
+            llm-eval-kit/reports/
