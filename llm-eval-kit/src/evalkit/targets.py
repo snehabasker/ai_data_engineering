@@ -1,7 +1,7 @@
 """Targets: the system under test.
 
 `MockTarget` profiles are *reference fixtures to validate the harness* (a vulnerable one must fail, a hardened one must
-pass), not models. `AnthropicTarget`, `OllamaTarget` and `module:callable` are for real use.
+pass), not models. `AnthropicTarget`, `BedrockTarget`, `OllamaTarget` and `module:callable` are for real use.
 """
 from __future__ import annotations
 
@@ -106,6 +106,24 @@ class AnthropicTarget:
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
 
 
+class BedrockTarget:
+    """Any model on AWS Bedrock through the model-agnostic Converse API (Claude, Llama, Nova, Mistral, ...).
+    Credentials and region come from the standard boto3 chain (env vars, profile, role)."""
+
+    def __init__(self, model_id: str, max_tokens: int = 400, region: str | None = None, client=None):
+        if client is None:
+            import boto3
+            client = boto3.client("bedrock-runtime", region_name=region or os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION"))
+        self.client, self.model_id, self.max_tokens = client, model_id, max_tokens
+        self.name = f"bedrock:{model_id}"
+
+    def __call__(self, system: str | None, user: str) -> str:
+        kw = {"system": [{"text": system}]} if system else {}
+        resp = self.client.converse(modelId=self.model_id, messages=[{"role": "user", "content": [{"text": user}]}],
+                                    inferenceConfig={"maxTokens": self.max_tokens, "temperature": 0}, **kw)
+        return "".join(b["text"] for b in resp["output"]["message"]["content"] if "text" in b)
+
+
 class OllamaTarget:
     """A local model served by Ollama (stdlib HTTP only, so the core stays dependency-free)."""
 
@@ -132,12 +150,14 @@ class CallableTarget:
 
 
 def load_target(spec: str):
-    """`mock:<profile>` | `anthropic:<model>` | `ollama:<model>` | `package.module:function` (fn(system, user) -> str)."""
+    """`mock:<profile>` | `anthropic:<model>` | `bedrock:<model-id>` | `ollama:<model>` | `package.module:function` (fn(system, user) -> str)."""
     kind, _, arg = spec.partition(":")
     if kind == "mock":
         return MockTarget(arg or "hardened")
     if kind == "anthropic":
         return AnthropicTarget(arg)
+    if kind == "bedrock":
+        return BedrockTarget(arg)
     if kind == "ollama":
         return OllamaTarget(arg)
     if not arg:

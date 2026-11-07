@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="evalkit")
     sub = p.add_subparsers(dest="cmd", required=True)
     r = sub.add_parser("run")
-    r.add_argument("--target", required=True, help="mock:<profile> | anthropic:<model> | module:function")
+    r.add_argument("--target", required=True, help="mock:<profile> | anthropic:<model> | bedrock:<model-id> | ollama:<model> | module:function")
     r.add_argument("--suites", default=",".join(SUITES))
     r.add_argument("--out", type=Path, default=Path("reports"))
     r.add_argument("--baseline", type=Path)
