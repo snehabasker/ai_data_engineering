@@ -1,4 +1,6 @@
 """CLI:  evalkit run --target mock:partial --baseline reports/baseline.json --min-pass injection=1.0
+        evalkit run --target ollama:qwen2.5:7b --mlflow
+        evalkit mlflow-eval --target ollama:qwen2.5:7b [--judge ollama:/qwen2.5:7b]
         evalkit dashboard reports/history -o docs/dashboard.html"""
 from __future__ import annotations
 
@@ -27,6 +29,9 @@ def cmd_run(a: argparse.Namespace) -> int:
     path = save_report(report, a.out)
     print(to_markdown(report))
     print(f"saved {path}")
+    if a.mlflow:
+        from .mlflow_integration import log_report  # lazy: optional extra
+        print(f"MLflow run: {log_report(report, a.run_name)}")
 
     problems = []
     for spec in a.min_pass or []:
@@ -39,6 +44,14 @@ def cmd_run(a: argparse.Namespace) -> int:
     for p in problems:
         print(f"GATE FAILED: {p}", file=sys.stderr)
     return 1 if problems else 0
+
+
+def cmd_mlflow_eval(a: argparse.Namespace) -> int:
+    from .mlflow_integration import genai_evaluate  # lazy: optional extra
+    target = load_target(a.target)
+    metrics = genai_evaluate(target, {n: SUITES[n]() for n in a.suites.split(",")}, judge=a.judge)
+    print(json.dumps(metrics, indent=2, default=str))
+    return 0
 
 
 def cmd_dashboard(a: argparse.Namespace) -> int:
@@ -58,7 +71,14 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--baseline", type=Path)
     r.add_argument("--max-regression", type=float, default=0.0)
     r.add_argument("--min-pass", action="append", metavar="SUITE=RATE")
+    r.add_argument("--mlflow", action="store_true", help="also log the run to MLflow")
+    r.add_argument("--run-name")
     r.set_defaults(fn=cmd_run)
+    m = sub.add_parser("mlflow-eval", help="run row-scored suites through mlflow.genai.evaluate")
+    m.add_argument("--target", required=True)
+    m.add_argument("--suites", default="injection,hallucination")
+    m.add_argument("--judge", help="also score with MLflow LLM judges, e.g. ollama:/qwen2.5:7b")
+    m.set_defaults(fn=cmd_mlflow_eval)
     d = sub.add_parser("dashboard")
     d.add_argument("history", type=Path)
     d.add_argument("-o", "--output", type=Path, default=Path("docs/dashboard.html"))

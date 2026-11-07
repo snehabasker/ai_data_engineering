@@ -1,13 +1,16 @@
 """Targets: the system under test.
 
 `MockTarget` profiles are *reference fixtures to validate the harness* (a vulnerable one must fail, a hardened one must
-pass), not models. `AnthropicTarget` and `module:callable` are for real use.
+pass), not models. `AnthropicTarget`, `OllamaTarget` and `module:callable` are for real use.
 """
 from __future__ import annotations
 
 import base64
 import importlib
+import json
+import os
 import re
+import urllib.request
 from typing import Callable
 
 from .suites.injection import CANARY
@@ -103,6 +106,23 @@ class AnthropicTarget:
         return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
 
 
+class OllamaTarget:
+    """A local model served by Ollama (stdlib HTTP only, so the core stays dependency-free)."""
+
+    def __init__(self, model: str, host: str | None = None, max_tokens: int = 400, timeout: float = 300):
+        self.model, self.max_tokens, self.timeout = model, max_tokens, timeout
+        self.host = (host or os.getenv("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
+        self.name = f"ollama:{model}"
+
+    def __call__(self, system: str | None, user: str) -> str:
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
+        body = json.dumps({"model": self.model, "messages": msgs, "stream": False,
+                           "options": {"temperature": 0, "num_predict": self.max_tokens}}).encode()
+        req = urllib.request.Request(f"{self.host}/api/chat", data=body, headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as r:
+            return json.loads(r.read())["message"]["content"]
+
+
 class CallableTarget:
     def __init__(self, fn: Callable[[str | None, str], str], name: str):
         self.fn, self.name = fn, name
@@ -112,12 +132,14 @@ class CallableTarget:
 
 
 def load_target(spec: str):
-    """`mock:<profile>` | `anthropic:<model>` | `package.module:function` (function(system, user) -> str)."""
+    """`mock:<profile>` | `anthropic:<model>` | `ollama:<model>` | `package.module:function` (fn(system, user) -> str)."""
     kind, _, arg = spec.partition(":")
     if kind == "mock":
         return MockTarget(arg or "hardened")
     if kind == "anthropic":
         return AnthropicTarget(arg)
+    if kind == "ollama":
+        return OllamaTarget(arg)
     if not arg:
         raise ValueError(f"unrecognised target {spec!r}")
     return CallableTarget(getattr(importlib.import_module(kind), arg), spec)
