@@ -126,3 +126,48 @@ def test_load_target_and_anthropic_wiring():
     assert "system" not in calls[1]
     with pytest.raises(ValueError):
         load_target("nonsense")
+
+
+# --- Bedrock target (Converse API) ---------------------------------------------------------------------------
+
+def _bedrock_client():
+    boto3 = pytest.importorskip("boto3")
+    return boto3.client("bedrock-runtime", region_name="us-east-1", aws_access_key_id="x", aws_secret_access_key="y")
+
+
+def test_bedrock_target_calls_converse_and_joins_text():
+    from botocore.stub import Stubber
+    from evalkit.targets import BedrockTarget
+    client = _bedrock_client()
+    with Stubber(client) as stub:
+        stub.add_response("converse", {
+            "output": {"message": {"role": "assistant", "content": [{"text": "Hello "}, {"text": "world"}]}},
+            "stopReason": "end_turn", "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+            "metrics": {"latencyMs": 5}},
+            expected_params={"modelId": "amazon.nova-lite-v1:0",
+                             "messages": [{"role": "user", "content": [{"text": "hi"}]}],
+                             "inferenceConfig": {"maxTokens": 400, "temperature": 0},
+                             "system": [{"text": "be brief"}]})
+        t = BedrockTarget("amazon.nova-lite-v1:0", client=client)
+        assert t("be brief", "hi") == "Hello world"
+        assert t.name == "bedrock:amazon.nova-lite-v1:0"
+
+
+def test_bedrock_target_omits_system_when_none():
+    from evalkit.targets import BedrockTarget
+    seen = {}
+
+    class Fake:
+        def converse(self, **kw):
+            seen.update(kw)
+            return {"output": {"message": {"content": [{"text": "ok"}]}}}
+
+    assert BedrockTarget("m", client=Fake())(None, "q") == "ok"
+    assert "system" not in seen
+
+
+def test_load_target_parses_bedrock_ids_containing_colons(monkeypatch):
+    import evalkit.targets as T
+    monkeypatch.setattr(T, "BedrockTarget", lambda model_id: SimpleNamespace(name=f"bedrock:{model_id}"))
+    assert load_target("bedrock:anthropic.claude-3-5-haiku-20241022-v1:0").name == \
+        "bedrock:anthropic.claude-3-5-haiku-20241022-v1:0"

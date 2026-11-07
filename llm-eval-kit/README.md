@@ -8,6 +8,7 @@ pip install -e ".[dev]"
 pytest                                                                  # 26 tests
 evalkit run --target mock:partial --baseline reports/baseline.json      # exits 1 on regression
 evalkit run --target anthropic:claude-sonnet-5-5 --min-pass injection=1.0   # needs ANTHROPIC_API_KEY
+evalkit run --target bedrock:anthropic.claude-3-5-haiku-20241022-v1:0 --min-pass injection=1.0   # AWS Bedrock Converse API; needs AWS creds + region (pip install .[bedrock])
 evalkit run --target ollama:qwen2.5:7b --mlflow                         # local model, run tracked in MLflow
 evalkit mlflow-eval --target ollama:qwen2.5:7b --judge ollama:/qwen2.5:7b   # mlflow.genai.evaluate: rules + LLM judges
 evalkit run --target mypkg.app:answer                                   # your own function
@@ -82,7 +83,7 @@ the gap, but should be measured against the rule before it is trusted.
 
 ## Limits — read before citing numbers
 
-- **One real model so far** (qwen2.5:7b, local). `AnthropicTarget` is still tested against a mock client only; the
+- **One real model so far** (qwen2.5:7b, local). `AnthropicTarget` and `BedrockTarget` are still tested against mock clients only (no live Bedrock run yet); the
   fixture table scores fixtures, not models.
 - Rule-based scoring is brittle on free-form prose (abstention is regex-matched). MLflow LLM judges can now run alongside
   (`mlflow-eval --judge`), but on injection they were far more lenient than the rule (see above), so they are not used

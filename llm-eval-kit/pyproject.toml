@@ -11,6 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.34"]
+bedrock = ["boto3>=1.35"]
 mlflow = ["mlflow>=3.1"]
 dev = ["pytest>=8"]
 
