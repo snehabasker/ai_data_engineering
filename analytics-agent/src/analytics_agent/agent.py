@@ -19,7 +19,7 @@ from .config import Settings
 from .db import QueryError, QueryResult, Warehouse
 from .guard import screen_input, validate_sql
 from .llm import LLM, ClaudeLLM, HeuristicLLM, Plan, PlanError
-from .retrieval import SemanticIndex
+from .retrieval import CohereEmbedder, CohereReranker, HashingEmbedder, SemanticIndex
 from .semantic import SemanticError, SemanticLayer, SemanticQuery
 from .tracing import span, start_trace
 
@@ -185,6 +185,18 @@ class AnalyticsAgent:
             trace_id=trace.trace_id, trace=trace.export() if include_trace else None,
         )
 
+    def run_plan(self, plan: Plan) -> State:
+        """Validate and execute an already-made plan (no planning, no repair). Used by the prompt optimiser's metric,
+        so training is scored by exactly the code path the agent uses."""
+        if plan.kind == "refuse":
+            return {"status": "refused", "refusal_reason": plan.reason}
+        s: State = {"plan": plan, "attempts": 0}
+        s.update(self._validate(s))
+        if s.get("error"):
+            return {**s, "status": "error"}
+        s.update(self._execute(s))
+        return {**s, "status": "error"} if s.get("error") else s
+
     def close(self) -> None:
         self.warehouse.close()
 
@@ -210,6 +222,22 @@ def _categorical_values(wh: Warehouse, layer: SemanticLayer) -> dict[str, list[s
     return out
 
 
+def make_embedder(settings: Settings):
+    if settings.embedder == "cohere":
+        return CohereEmbedder(settings.cohere_embed_model)
+    if settings.embedder != "hashing":
+        raise ValueError(f"unknown embedder {settings.embedder!r}")
+    return HashingEmbedder()
+
+
+def make_reranker(settings: Settings):
+    if settings.reranker == "cohere":
+        return CohereReranker(settings.cohere_rerank_model)
+    if settings.reranker != "none":
+        raise ValueError(f"unknown reranker {settings.reranker!r}")
+    return None
+
+
 def build_agent(settings: Settings | None = None, llm: LLM | None = None, layer: SemanticLayer | None = None) -> AnalyticsAgent:
     settings = settings or Settings()
     if not settings.db_path.exists():
@@ -217,9 +245,14 @@ def build_agent(settings: Settings | None = None, llm: LLM | None = None, layer:
     layer = layer or SemanticLayer.load()
     wh = Warehouse(settings.db_path, settings.max_rows, settings.query_timeout_s)
     values = _categorical_values(wh, layer)
-    index = SemanticIndex(layer, qdrant_url=settings.qdrant_url, values=values)
+    index = SemanticIndex(layer, embedder=make_embedder(settings), qdrant_url=settings.qdrant_url,
+                          values=values, reranker=make_reranker(settings))
     if llm is None:
-        if settings.resolved_llm() == "claude":
+        if settings.resolved_llm() == "dspy":
+            from .dspy_planner import DSPyLLM, make_lm  # lazy: dspy is an optional extra
+            llm = DSPyLLM(layer, _schema_text(wh, layer), values, lm=make_lm(settings.dspy_lm),
+                          program_path=settings.dspy_program)
+        elif settings.resolved_llm() == "claude":
             llm = ClaudeLLM(layer, _schema_text(wh, layer), settings.model, settings.narrate_model)
         else:
             llm = HeuristicLLM(layer, values)
